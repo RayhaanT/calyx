@@ -41,10 +41,12 @@ class SystolicConfiguration:
         #   Not every PE needs to wait for the clock edge to get the next piece of data
         #   Data is distributed to multiple PEs in a block at once.
         parser.add_argument("file", nargs="?", type=str)
-        parser.add_argument("-tl", "--top-length", type=int)
-        parser.add_argument("-td", "--top-depth", type=int)
-        parser.add_argument("-ll", "--left-length", type=int)
-        parser.add_argument("-ld", "--left-depth", type=int)
+        parser.add_argument("-A", "--tensor-left-length", type=int)
+        parser.add_argument("-B", "--tensor-top-length", type=int)
+        parser.add_argument("-C", "--tensor-width", type=int)
+        parser.add_argument("-N", "--top-length", type=int)
+        parser.add_argument("-M", "--left-length", type=int)
+        parser.add_argument("-d", "--depth", type=int)
         parser.add_argument(
             "-p",
             "--post-op",
@@ -64,14 +66,16 @@ class SystolicConfiguration:
 
         args = parser.parse_args()
 
-        fields = [args.top_length, args.top_depth, args.left_length, args.left_depth]
+        fields = [args.top_length, args.tensor_top_length, args.left_length, args.tensor_left_length, args.depth]
         if all(map(lambda x: x is not None, fields)):
-            self.top_length = args.top_length
-            self.top_depth = args.top_depth
-            self.left_length = args.left_length
-            self.left_depth = args.left_depth
+            self.top_length = args.tensor_top_length * args.top_length
+            self.top_depth = args.depth
+            self.left_length = args.tensor_left_length * args. left_length
+            self.left_depth = args.depth
+            self.depth = args.depth
             self.post_op = args.post_op
             self.static = args.fixed_dim
+            self.width = args.tensor_width
         elif args.file is not None:
             with open(args.file, "r") as f:
                 spec = json.load(f)
@@ -88,11 +92,11 @@ class SystolicConfiguration:
                 "Need to pass either `FILE` or all of `"
                 "-tl TOP_LENGTH -td TOP_DEPTH -ll LEFT_LENGTH -ld LEFT_DEPTH`"
             )
-        assert self.top_depth == self.left_depth, (
-            f"Cannot multiply matrices: "
-            f"{self.top_length}x{self.top_depth} and \
-                {self.left_depth}x{self.left_length}"
-        )
+        # assert self.top_depth == self.left_depth, (
+        #     f"Cannot multiply matrices: "
+        #     f"{self.top_length}x{self.top_depth} and \
+        #         {self.left_depth}x{self.left_length}"
+        # )
 
     def get_output_dimensions(self):
         """

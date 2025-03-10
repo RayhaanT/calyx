@@ -375,7 +375,7 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     left_length: Number of PEs in each column.
     left_depth: Number of elements processed by each PE in a col.
     """
-    pe(prog)
+    pe(prog, config.width)
     computational_unit = prog.component(SYSTOLIC_ARRAY_COMP)
     depth_port = computational_unit.input("depth", BITWIDTH)
     # initialize the iteration limit to top_length + left_length + depth + 4
