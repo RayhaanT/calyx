@@ -39,9 +39,11 @@ def pe(prog: cb.Builder, width: int):
 
     # Generate a multiplication unit for each input pair
     muls = []
+    tops = []
+    lefts = []
     for i in range(width):
-        comp.input(f"top{i}", BITWIDTH)
-        comp.input(f"left{i}", BITWIDTH)
+        tops.append(comp.input(f"top{i}", BITWIDTH))
+        lefts.append(comp.input(f"left{i}", BITWIDTH))
         muls.append(comp.pipelined_fp_smult(f"mul{i}", BITWIDTH, INTWIDTH, FRACWIDTH))
 
     comp.input("mul_ready", 1)
@@ -53,8 +55,8 @@ def pe(prog: cb.Builder, width: int):
     # Control group for all multiplications
     with comp.static_group("do_mul", 1):
         for i in range(width):
-            muls[i].left = getattr(this, f"top{i}")
-            muls[i].right = getattr(this, f"left{i}")
+            muls[i].left = tops[i]
+            muls[i].right = lefts[i]
 
     # Parallelize multiplications with first adder level
     par = py_ast.StaticParComp([py_ast.Enable(f"do_add{len(muls)}"), py_ast.Enable("do_mul")])
