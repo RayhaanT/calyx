@@ -18,12 +18,12 @@ def get_pe_invoke(r, c, width):
 
     top_ports = [ (
         f"top_{i}",
-        py_ast.ThisPort(py_ast.CompVar(f"top_in_{i}_{c}"))
+        py_ast.ThisPort(py_ast.CompVar(f"top_in_{c}_{i}"))
         ) for i in range(width)
     ]
     left_ports = [ (
         f"left_{i}",
-        py_ast.ThisPort(py_ast.CompVar(f"left_in_{i}_{r}"))
+        py_ast.ThisPort(py_ast.CompVar(f"left_in_{r}_{i}"))
         ) for i in range(width)
     ]
 
@@ -56,9 +56,9 @@ def block_pe(prog: cb.Builder, config: SystolicConfiguration):
     # Also the data-forwarding regiisters
     for col in range(config.tensor_top_length):
         for j in range(config.width):
-            in_port = comp.input(f"top_in_{j}_{col}", BITWIDTH)
-            out_port = comp.output(f"top_out_{j}_{col}", BITWIDTH)
-            reg = comp.reg(f"down_fwd_{j}_{col}", BITWIDTH)
+            in_port = comp.input(f"top_in_{col}_{j}", BITWIDTH)
+            out_port = comp.output(f"top_out_{col}_{j}", BITWIDTH)
+            reg = comp.reg(f"down_fwd_{col}_{j}", BITWIDTH)
             with comp.continuous as g:
                 # out_port = reg.out doesn't work here but this does
                 g.asgn(out_port, reg.out)
@@ -66,9 +66,9 @@ def block_pe(prog: cb.Builder, config: SystolicConfiguration):
                 reg.write_en = 1
     for row in range(config.tensor_left_length):
         for j in range(config.width):
-            in_port = comp.input(f"left_in_{j}_{row}", BITWIDTH)
-            out_port = comp.output(f"left_out_{j}_{row}", BITWIDTH)
-            reg = comp.reg(f"right_fwd_{j}_{row}", BITWIDTH)
+            in_port = comp.input(f"left_in_{row}_{j}", BITWIDTH)
+            out_port = comp.output(f"left_out_{row}_{j}", BITWIDTH)
+            reg = comp.reg(f"right_fwd_{row}_{j}", BITWIDTH)
             with comp.continuous as g:
                 g.asgn(out_port, reg.out)
                 reg.in_ = in_port
@@ -90,4 +90,3 @@ def block_pe(prog: cb.Builder, config: SystolicConfiguration):
             for col in range(config.tensor_top_length)
         ])
     comp.control += par
-

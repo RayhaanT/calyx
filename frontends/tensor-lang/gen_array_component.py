@@ -136,7 +136,7 @@ def instantiate_data_move(
         with comp.continuous:
             for tensor_row in range(config.tensor_left_length):
                 for i in range(config.width):
-                    setattr(dst_block, f"left_in_{i}_{tensor_row}", getattr(src_block, f"left_out_{i}_{tensor_row}"))
+                    setattr(dst_block, f"left_in_{tensor_row}_{i}", getattr(src_block, f"left_out_{tensor_row}_{i}"))
 
     if down_edge:
         src_block = comp.get_cell(f"block_pe_{row}_{col}")
@@ -144,7 +144,7 @@ def instantiate_data_move(
         with comp.continuous:
             for tensor_col in range(config.tensor_left_length):
                 for i in range(config.width):
-                    setattr(dst_block, f"top_in_{i}_{tensor_col}", getattr(src_block, f"top_out_{i}_{tensor_col}"))
+                    setattr(dst_block, f"top_in_{tensor_col}_{i}", getattr(src_block, f"top_out_{tensor_col}_{i}"))
 
 
 def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfiguration, row, col):
@@ -190,18 +190,23 @@ def get_memory_updates(config: SystolicConfiguration, row, col):
     return mover_enables
 
 
-def get_pe_invoke(r, c, mul_ready):
+def get_pe_invoke(config: SystolicConfiguration, r, c, mul_ready):
     """
     gets the PE invokes for the PE at (r,c). mul_ready signals whether 1 or 0
     should be passed into mul_ready
     """
     return py_ast.StaticInvoke(
-        id=py_ast.CompVar(f"pe_{r}_{c}"),
+        id=py_ast.CompVar(f"block_pe_{r}_{c}"),
         in_connects=[
-            ("top", py_ast.CompPort(py_ast.CompVar(f"top_{r}_{c}"), "out")),
-            (
-                "left",
-                py_ast.CompPort(py_ast.CompVar(f"left_{r}_{c}"), "out"),
+            *(
+                (f"top_in_{tensor_col}_{i}", py_ast.CompPort(py_ast.CompVar(f"top_{r}_{c}_{tensor_col}_{i}"), "out"))
+                for tensor_col in range(config.tensor_top_length)
+                for i in range(config.width)
+            ),
+            *(
+                (f"left_in_{tensor_row}_{i}", py_ast.CompPort(py_ast.CompVar(f"left_{r}_{c}_{tensor_row}_{i}"), "out"))
+                for tensor_row in range(config.tensor_left_length)
+                for i in range(config.width)
             ),
             (
                 "mul_ready",
@@ -348,8 +353,7 @@ def generate_control(
                 comp,
                 schedule.mappings["pe_sched"][r][c].i1,
                 schedule.mappings["pe_sched"][r][c].i2,
-                # Should invoke block PE here
-                [get_pe_invoke(r, c, pe_accum_cond)],
+                [get_pe_invoke(config, r, c, pe_accum_cond)],
             )
             output_writes = execute_if_eq(
                 comp,
