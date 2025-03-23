@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from gen_pe import pe, PE_NAME, BITWIDTH
+from gen_block_pe import block_pe, BLOCK_PE_NAME
 from calyx import builder as cb
 from calyx import py_ast
 from calyx.utils import bits_needed
@@ -50,7 +51,7 @@ def add_systolic_output_params(comp: cb.ComponentBuilder, row_num, addr_width):
     )
 
 
-def instantiate_memory(comp: cb.ComponentBuilder, top_or_left, idx, size):
+def instantiate_memory(comp: cb.ComponentBuilder, top_or_left, idx, tensor_idx, parallel_idx, size):
     """
     Instantiates:
     - top memory
@@ -59,11 +60,11 @@ def instantiate_memory(comp: cb.ComponentBuilder, top_or_left, idx, size):
     Returns (cells, structure) tuple.
     """
     if top_or_left == "top":
-        name = f"t{idx}"
-        target_reg = f"top_0_{idx}"
+        name = f"t{idx}_{tensor_idx}_{parallel_idx}"
+        target_reg = f"top_0_{idx}_{tensor_idx}_{parallel_idx}"
     elif top_or_left == "left":
-        name = f"l{idx}"
-        target_reg = f"left_{idx}_0"
+        name = f"l{idx}_{tensor_idx}_{parallel_idx}"
+        target_reg = f"left_{idx}_0_{tensor_idx}_{parallel_idx}"
     else:
         raise Exception(f"Invalid top_or_left: {top_or_left}")
 
@@ -86,14 +87,20 @@ def instantiate_memory(comp: cb.ComponentBuilder, top_or_left, idx, size):
         target.write_en = 1
 
 
-def instantiate_pe(comp: cb.ComponentBuilder, row: int, col: int):
+def instantiate_block_pe(comp: cb.ComponentBuilder, row: int, col: int, config: SystolicConfiguration):
     """
-    Instantiate the PE and all the registers connected to it.
+    Instantiate the block PE and all the registers connected to it.
     """
-    # Add all the required cells.
-    comp.cell(f"pe_{row}_{col}", py_ast.CompInst(PE_NAME, []))
-    comp.reg(f"top_{row}_{col}", BITWIDTH)
-    comp.reg(f"left_{row}_{col}", BITWIDTH)
+    # Add the cell
+    comp.cell(f"block_pe_{row}_{col}", py_ast.CompInst(BLOCK_PE_NAME, []))
+
+    # Registers for the block pe to forward values with (We only need the leftmost and rightmost for data loading so fix this later)
+    for c in range(config.tensor_top_length):
+        for i in range(config.width):
+            comp.reg(f"top_{row}_{col}_{c}_{i}", BITWIDTH)
+    for r in range(config.tensor_left_length):
+        for i in range(config.width):
+            comp.reg(f"left_{row}_{col}_{r}_{i}", BITWIDTH)
 
 
 def get_indexor(comp: cb.ComponentBuilder, width: int, offset: int) -> cb.CellBuilder:
@@ -116,43 +123,49 @@ def get_indexor(comp: cb.ComponentBuilder, width: int, offset: int) -> cb.CellBu
 
 
 def instantiate_data_move(
-    comp: cb.ComponentBuilder, row: int, col: int, right_edge: bool, down_edge: bool
+    comp: cb.ComponentBuilder, config: SystolicConfiguration, row: int, col: int, right_edge: bool, down_edge: bool
 ):
     """
     Generates groups for "data movers" which are groups that move data
     from the `write` register of the PE at (row, col) to the read register
     of the PEs at (row+1, col) and (row, col+1)
     """
-    if not right_edge:
-        src_reg = comp.get_cell(f"left_{row}_{col}")
-        dst_reg = comp.get_cell(f"left_{row}_{col + 1}")
+    if right_edge:
+        src_block = comp.get_cell(f"block_pe_{row}_{col}")
+        dst_block = comp.get_cell(f"block_pe_{row}_{col + 1}")
         with comp.continuous:
-            dst_reg.in_ = src_reg.out
-            dst_reg.write_en = 1
+            for tensor_row in config.tensor_left_length:
+                for i in config.width:
+                    setattr(src_block, f"left_out_{i}_{tensor_row}", getattr(dst_block, f"left_in_{i}_{tensor_row}"))
 
-    if not down_edge:
-        src_reg = comp.get_cell(f"top_{row}_{col}")
-        dst_reg = comp.get_cell(f"top_{row + 1}_{col}")
+    if down_edge:
+        src_block = comp.get_cell(f"block_pe_{row}_{col}")
+        dst_block = comp.get_cell(f"block_pe_{row + 1}_{col}")
         with comp.continuous:
-            dst_reg.in_ = src_reg.out
-            dst_reg.write_en = 1
+            for tensor_col in config.tensor_left_length:
+                for i in config.width:
+                    setattr(src_block, f"top_out_{i}_{tensor_col}", getattr(dst_block, f"top_in_{i}_{tensor_col}"))
 
 
-def instantiate_output_move(comp: cb.ComponentBuilder, row, col):
+def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfiguration, row, col):
     """
     Generates groups to move the final value from a PE to the output ports,
     e.g., writes the value of the PE to `this.r{row}_value_port`
     """
-    group_name = NAME_SCHEME["out write"].format(pe=f"pe_{row}_{col}")
-    pe = comp.get_cell(f"pe_{row}_{col}")
+    group_name = NAME_SCHEME["out write"].format(pe=f"block_pe_{row}_{col}")
+    block_pe = comp.get_cell(f"block_pe_{row}_{col}")
     this = comp.this()
-    valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=row))
-    value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=row))
-    idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=row))
-    with comp.static_group(group_name, 1) as g:
-        g.asgn(valid_port, 1)
-        g.asgn(value_port, pe.out)
-        g.asgn(idx_port, col)
+    for tensor_row in range(config.tensor_left_length):
+        for tensor_col in range(config.tensor_top_length):
+            pe_row = row*config.tensor_left_length + tensor_row
+            pe_col = col*config.tensor_top_length + tensor_col
+            valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=pe_row))
+            value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=pe_row))
+            idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=pe_row))
+            with comp.static_group(group_name, 1) as g:
+                g.asgn(valid_port, 1)
+                g.asgn(value_port, getattr(block_pe, f"final_{tensor_row}_{tensor_col}"))
+                g.asgn(idx_port, pe_col)
 
 
 def get_memory_updates(row, col):
@@ -160,6 +173,7 @@ def get_memory_updates(row, col):
     Gets the memory moves and memory idx updates for (row,col)
     This is how we coordinate feeding the memories into the systolic array
     """
+    # TODO: use new memory setup
     movers = []
     if col == 0:
         movers.append(NAME_SCHEME["memory move"].format(prefix=f"l{row}"))
@@ -327,6 +341,7 @@ def generate_control(
                 comp,
                 schedule.mappings["pe_sched"][r][c].i1,
                 schedule.mappings["pe_sched"][r][c].i2,
+                # Should invoke block PE here
                 [get_pe_invoke(r, c, pe_accum_cond)],
             )
             output_writes = execute_if_eq(
@@ -376,6 +391,7 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     left_depth: Number of elements processed by each PE in a col.
     """
     pe(prog, config.width)
+    block_pe(prog, config)
     computational_unit = prog.component(SYSTOLIC_ARRAY_COMP)
     depth_port = computational_unit.input("depth", BITWIDTH)
     # initialize the iteration limit to top_length + left_length + depth + 4
@@ -395,36 +411,40 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     for row in range(config.left_length):
         for col in range(config.top_length):
             # Instantiate the PEs and surronding registers
-            instantiate_pe(computational_unit, row, col)
+            instantiate_block_pe(computational_unit, row, col, config)
 
     # Instantiate all the memories
-    for r in range(config.top_length):
-        instantiate_memory(computational_unit, "top", r, config.top_depth)
+    for col in range(config.top_length):
+        for tensor_col in range(config.tensor_top_length):
+            for i in range(config.width):
+                instantiate_memory(computational_unit, "top", col, tensor_col, i, config.top_depth)
 
-    for col in range(config.left_length):
-        instantiate_memory(computational_unit, "left", col, config.left_depth)
+    for row in range(config.left_length):
+        for tensor_row in range(config.tensor_left_length):
+            for i in range(config.width):
+                instantiate_memory(computational_unit, "left", row, tensor_row, i, config.left_depth)
 
     # Instantiate output memory
-    for i in range(config.left_length):
+    for i in range(config.left_length * config.tensor_left_length):
         add_systolic_output_params(
             computational_unit, i, bits_needed(config.top_length)
         )
 
-    # Instantiate all the PEs
     for row in range(config.left_length):
         for col in range(config.top_length):
             # Instantiate the mover fabric
             instantiate_data_move(
                 computational_unit,
+                config,
                 row,
                 col,
-                col == config.top_length - 1,
-                row == config.left_length - 1,
+                col < config.top_length - 1,
+                row < config.left_length - 1,
             )
 
             # Instantiate output movement structure, i.e., writes to
             # `computational_unit`'s output ports
-            instantiate_output_move(computational_unit, row, col)
+            instantiate_output_move(computational_unit, config, row, col)
 
     # Generate the control and set the source map
     control, source_map = generate_control(computational_unit, config, schedule)

@@ -68,11 +68,12 @@ class SystolicConfiguration:
 
         fields = [args.top_length, args.tensor_top_length, args.left_length, args.tensor_left_length, args.depth]
         if all(map(lambda x: x is not None, fields)):
-            self.top_length = args.tensor_top_length * args.top_length
+            self.tensor_top_length = args.tensor_top_length
+            self.top_length = args.top_length
             self.top_depth = args.depth
-            self.left_length = args.tensor_left_length * args. left_length
+            self.tensor_left_length = args.tensor_left_length
+            self.left_length = args.left_length
             self.left_depth = args.depth
-            self.depth = args.depth
             self.post_op = args.post_op
             self.static = args.fixed_dim
             self.width = args.tensor_width

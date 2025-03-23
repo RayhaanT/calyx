@@ -42,9 +42,9 @@ def pe(prog: cb.Builder, width: int):
     tops = []
     lefts = []
     for i in range(width):
-        tops.append(comp.input(f"top{i}", BITWIDTH))
-        lefts.append(comp.input(f"left{i}", BITWIDTH))
-        muls.append(comp.pipelined_fp_smult(f"mul{i}", BITWIDTH, INTWIDTH, FRACWIDTH))
+        tops.append(comp.input(f"top_{i}", BITWIDTH))
+        lefts.append(comp.input(f"left_{i}", BITWIDTH))
+        muls.append(comp.pipelined_fp_smult(f"mul_{i}", BITWIDTH, INTWIDTH, FRACWIDTH))
 
     comp.input("mul_ready", 1)
     comp.output("out", BITWIDTH)
