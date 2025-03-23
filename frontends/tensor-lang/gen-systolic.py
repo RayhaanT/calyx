@@ -111,7 +111,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     for i in range(left_length):
         # Connect output memory to post op. want to write to this memory.
         connections += create_mem_connections(
-            main, post_op, f"{OUT_MEM}_{i}", top_length, read_mem=False
+            main, post_op, f"{OUT_MEM}_{i}", top_length * config.tensor_top_length, read_mem=False
         )
         # Connect systolic array to post op
         connections += cb.build_connections(

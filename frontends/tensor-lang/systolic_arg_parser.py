@@ -104,7 +104,10 @@ class SystolicConfiguration:
         Returns the dimensions of the output systolic array (in the form
         of num_rows x num_cols)
         """
-        return (self.left_length, self.top_length)
+        return (
+            self.left_length * self.tensor_left_length,
+            self.top_length * self.tensor_top_length,
+        )
 
     def get_contraction_dimension(self):
         """
@@ -114,7 +117,8 @@ class SystolicConfiguration:
             self.left_depth == self.top_depth
         ), "left_depth and top_depth should be same"
         # Could have also returend self.top_depth
-        return self.left_depth
+        # TODO: double check this is right for iteration count calculation
+        return self.left_depth // self.width
 
     def get_iteration_count(self):
         """
