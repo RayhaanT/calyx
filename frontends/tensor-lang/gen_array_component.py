@@ -152,13 +152,13 @@ def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfigura
     Generates groups to move the final value from a PE to the output ports,
     e.g., writes the value of the PE to `this.r{row}_value_port`
     """
-    group_name = NAME_SCHEME["out write"].format(pe=f"block_pe_{row}_{col}")
     block_pe = comp.get_cell(f"block_pe_{row}_{col}")
     this = comp.this()
     for tensor_row in range(config.tensor_left_length):
         for tensor_col in range(config.tensor_top_length):
             pe_row = row*config.tensor_left_length + tensor_row
             pe_col = col*config.tensor_top_length + tensor_col
+            group_name = NAME_SCHEME["out write"].format(pe=f"pe_{pe_row}_{pe_col}")
             valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=pe_row))
             value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=pe_row))
             idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=pe_row))
