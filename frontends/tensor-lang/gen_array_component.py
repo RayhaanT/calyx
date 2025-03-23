@@ -134,17 +134,17 @@ def instantiate_data_move(
         src_block = comp.get_cell(f"block_pe_{row}_{col}")
         dst_block = comp.get_cell(f"block_pe_{row}_{col + 1}")
         with comp.continuous:
-            for tensor_row in config.tensor_left_length:
-                for i in config.width:
-                    setattr(src_block, f"left_out_{i}_{tensor_row}", getattr(dst_block, f"left_in_{i}_{tensor_row}"))
+            for tensor_row in range(config.tensor_left_length):
+                for i in range(config.width):
+                    setattr(dst_block, f"left_in_{i}_{tensor_row}", getattr(src_block, f"left_out_{i}_{tensor_row}"))
 
     if down_edge:
         src_block = comp.get_cell(f"block_pe_{row}_{col}")
         dst_block = comp.get_cell(f"block_pe_{row + 1}_{col}")
         with comp.continuous:
-            for tensor_col in config.tensor_left_length:
-                for i in config.width:
-                    setattr(src_block, f"top_out_{i}_{tensor_col}", getattr(dst_block, f"top_in_{i}_{tensor_col}"))
+            for tensor_col in range(config.tensor_left_length):
+                for i in range(config.width):
+                    setattr(dst_block, f"top_in_{i}_{tensor_col}", getattr(src_block, f"top_out_{i}_{tensor_col}"))
 
 
 def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfiguration, row, col):
@@ -427,7 +427,7 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     # Instantiate output memory
     for i in range(config.left_length * config.tensor_left_length):
         add_systolic_output_params(
-            computational_unit, i, bits_needed(config.top_length)
+            computational_unit, i, bits_needed(config.left_length * config.tensor_left_length)
         )
 
     for row in range(config.left_length):
