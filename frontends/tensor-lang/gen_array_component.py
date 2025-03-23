@@ -168,17 +168,24 @@ def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfigura
                 g.asgn(idx_port, pe_col)
 
 
-def get_memory_updates(row, col):
+def get_memory_updates(config: SystolicConfiguration, row, col):
     """
     Gets the memory moves and memory idx updates for (row,col)
     This is how we coordinate feeding the memories into the systolic array
     """
-    # TODO: use new memory setup
     movers = []
     if col == 0:
-        movers.append(NAME_SCHEME["memory move"].format(prefix=f"l{row}"))
+        movers.extend(
+            NAME_SCHEME["memory move"].format(prefix=f"l{row}_{tensor_row}_{i}")
+            for tensor_row in range(config.tensor_left_length)
+            for i in range(config.width)
+        )
     if row == 0:
-        movers.append(NAME_SCHEME["memory move"].format(prefix=f"t{col}"))
+        movers.extend(
+            NAME_SCHEME["memory move"].format(prefix=f"t{col}_{tensor_col}_{i}")
+            for tensor_col in range(config.tensor_top_length)
+            for i in range(config.width)
+        )
     mover_enables = [py_ast.Enable(name) for name in movers]
     return mover_enables
 
@@ -331,7 +338,7 @@ def generate_control(
                 comp,
                 schedule.mappings["update_sched"][r][c].i1,
                 schedule.mappings["update_sched"][r][c].i2,
-                get_memory_updates(r, c),
+                get_memory_updates(config, r, c),
             )
             pe_accum_thresh = schedule.mappings["pe_accum_cond"][r][c].i1
             pe_accum_cond = py_ast.CompPort(
