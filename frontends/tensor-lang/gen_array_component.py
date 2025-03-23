@@ -355,11 +355,20 @@ def generate_control(
                 schedule.mappings["pe_sched"][r][c].i2,
                 [get_pe_invoke(config, r, c, pe_accum_cond)],
             )
+
+            # write out each individual tensor PE in the block PE
+            output_groups = []
+            for tensor_row in range(config.tensor_left_length):
+                for tensor_col in range(config.tensor_top_length):
+                    row = r*config.tensor_left_length + tensor_row
+                    col = c*config.tensor_top_length + tensor_col
+                    output_groups.append(py_ast.Enable(NAME_SCHEME["out write"].format(pe=f"pe_{row}_{col}")))
             output_writes = execute_if_eq(
                 comp,
                 schedule.mappings["pe_write_sched"][r][c].i1,
-                [py_ast.Enable(NAME_SCHEME["out write"].format(pe=f"pe_{r}_{c}"))],
+                output_groups,
             )
+
             while_body_stmts.append(
                 py_ast.StaticParComp(input_mem_updates + pe_executions + output_writes)
             )

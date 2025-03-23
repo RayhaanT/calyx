@@ -58,9 +58,11 @@ def pe(prog: cb.Builder, width: int):
             muls[i].left = tops[i]
             muls[i].right = lefts[i]
 
+    control_seq = []
+
     # Parallelize multiplications with first adder level
     par = py_ast.StaticParComp([py_ast.Enable(f"do_add{len(muls)}"), py_ast.Enable("do_mul")])
-    comp.control += par
+    control_seq.append(par)
 
     to_add = muls
     # Build an adder tree
@@ -68,7 +70,7 @@ def pe(prog: cb.Builder, width: int):
     while len(to_add) > 1:
         to_add = add_tree_layer(to_add, comp)
         if len(to_add) > 1:
-            comp.control += py_ast.Enable(f"do_add{len(to_add)}")
+            control_seq.append(py_ast.Enable(f"do_add{len(to_add)}"))
 
     # Add add tree result to acc
     with comp.static_group(f"final_add", 1):
@@ -78,7 +80,8 @@ def pe(prog: cb.Builder, width: int):
         acc.write_en = this.mul_ready
         acc.in_ = adder.out
 
-    comp.control += py_ast.Enable(f"final_add")
+    control_seq.append(py_ast.Enable(f"final_add"))
+    comp.control += py_ast.StaticSeqComp(control_seq)
 
     with comp.continuous:
         this.out = acc.out
