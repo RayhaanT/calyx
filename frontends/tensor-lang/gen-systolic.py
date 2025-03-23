@@ -72,6 +72,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
         config.left_length,
         config.left_depth,
     )
+    mem_depth = top_depth // config.width
     main = prog.component("main")
     systolic_array = main.cell(
         "systolic_array_component", py_ast.CompInst(SYSTOLIC_ARRAY_COMP, [])
@@ -85,25 +86,32 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     # output memories to the post_op_component.
     connections = []
     # Connect input memories to systolic_array
-    for r in range(top_length):
-        connections += create_mem_connections(
-            main, systolic_array, f"t{r}", top_depth, read_mem=True
-        )
-    for c in range(left_length):
-        connections += create_mem_connections(
-            # top_depth should = left_depth
-            main,
-            systolic_array,
-            f"l{c}",
-            left_depth,
-            read_mem=True,
-        )
+    for r in range(left_length):
+        for tensor_row in range(config.tensor_top_length):
+            for i in range(config.width):
+                connections += create_mem_connections(
+                    main,
+                    systolic_array,
+                    f"l{r}_{tensor_row}_{i}",
+                    mem_depth,
+                    read_mem=True,
+                )
+    for c in range(top_length):
+        for tensor_col in range(config.tensor_left_length):
+            for i in range(config.width):
+                connections += create_mem_connections(
+                    main,
+                    systolic_array,
+                    f"t{c}_{tensor_col}_{i}",
+                    mem_depth,
+                    read_mem=True,
+                )
     # Connect outout memories to post_op, and systolic_array_output to
     # post_op inputs.
     for i in range(left_length):
         # Connect output memory to post op. want to write to this memory.
         connections += create_mem_connections(
-            main, post_op, OUT_MEM + f"_{i}", top_length, read_mem=False
+            main, post_op, f"{OUT_MEM}_{i}", top_length, read_mem=False
         )
         # Connect systolic array to post op
         connections += cb.build_connections(
@@ -132,7 +140,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
         systolic_done_reg.in_ = systolic_array.done @ 1
         systolic_done_wire.in_ = (systolic_array.done | systolic_done_reg.out) @ 1
         systolic_array.go = ~systolic_done_wire.out @ py_ast.ConstantPort(1, 1)
-        systolic_array.depth = py_ast.ConstantPort(BITWIDTH, left_depth)
+        systolic_array.depth = py_ast.ConstantPort(BITWIDTH, mem_depth)
 
         # Triggering post_op component.
         post_op.go = py_ast.ConstantPort(1, 1)

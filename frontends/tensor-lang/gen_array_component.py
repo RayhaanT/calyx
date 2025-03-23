@@ -425,15 +425,16 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
             instantiate_block_pe(computational_unit, row, col, config)
 
     # Instantiate all the memories
+    mem_depth = config.top_depth // config.width
     for col in range(config.top_length):
         for tensor_col in range(config.tensor_top_length):
             for i in range(config.width):
-                instantiate_memory(computational_unit, "top", col, tensor_col, i, config.top_depth)
+                instantiate_memory(computational_unit, "top", col, tensor_col, i, mem_depth)
 
     for row in range(config.left_length):
         for tensor_row in range(config.tensor_left_length):
             for i in range(config.width):
-                instantiate_memory(computational_unit, "left", row, tensor_row, i, config.left_depth)
+                instantiate_memory(computational_unit, "left", row, tensor_row, i, mem_depth)
 
     # Instantiate output memory
     for i in range(config.left_length * config.tensor_left_length):
