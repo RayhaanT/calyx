@@ -116,7 +116,7 @@ class SystolicConfiguration:
         assert (
             self.left_depth == self.top_depth
         ), "left_depth and top_depth should be same"
-        # Could have also returend self.top_depth
+        # Could have also returned self.top_depth
         # TODO: double check this is right for iteration count calculation
         return self.left_depth // self.width
 
@@ -125,10 +125,9 @@ class SystolicConfiguration:
         Returns the iteration count if self.static
         Otherwise throws an error
         """
-        # Could have also returend self.top_depth
         if self.static:
-            (num_out_rows, num_out_cols) = self.get_output_dimensions()
-            return self.get_contraction_dimension() + num_out_rows + num_out_cols + 4
+            # TODO: add actual latency, not 4
+            return self.get_contraction_dimension() + self.left_length + self.top_length + 4
         raise Exception(
             "Cannot get iteration count for systolic array with dynamic \
             contraction dimension"
