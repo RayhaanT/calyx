@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from gen_pe import pe, PE_NAME, BITWIDTH
+from gen_pe import pe, BITWIDTH
 from gen_block_pe import block_pe, BLOCK_PE_NAME
 from calyx import builder as cb
 from calyx import py_ast
@@ -24,9 +24,9 @@ NAME_SCHEME = {
     "register move down": "{pe}_down_move",
     "register move right": "{pe}_right_move",
     # Output signals
-    "systolic valid signal": "r{row_num}_valid",
-    "systolic value signal": "r{row_num}_value",
-    "systolic idx signal": "r{row_num}_idx",
+    "systolic valid signal": "r{row_num}_{col_num}_valid",
+    "systolic value signal": "r{row_num}_{col_num}_value",
+    "systolic idx signal": "r{row_num}_{col_num}_idx",
     # "Index between" registers to help with scheduling
     "idx between reg": "idx_between_{lo}_{hi}_reg",
     "idx between group": "idx_between_{lo}_{hi}_group",
@@ -34,7 +34,7 @@ NAME_SCHEME = {
 }
 
 
-def add_systolic_output_params(comp: cb.ComponentBuilder, row_num, addr_width):
+def add_systolic_output_params(comp: cb.ComponentBuilder, row_num, col_num, addr_width):
     """
     Add output arguments to systolic array component `comp` for row `row_num`.
     The ouptut arguments alllow the systolic array to expose its outputs for `row_num`
@@ -44,9 +44,9 @@ def add_systolic_output_params(comp: cb.ComponentBuilder, row_num, addr_width):
         comp,
         input_ports=[],
         output_ports=[
-            (NAME_SCHEME["systolic valid signal"].format(row_num=row_num), 1),
-            (NAME_SCHEME["systolic value signal"].format(row_num=row_num), BITWIDTH),
-            (NAME_SCHEME["systolic idx signal"].format(row_num=row_num), addr_width),
+            (NAME_SCHEME["systolic valid signal"].format(row_num=row_num, col_num=col_num), 1),
+            (NAME_SCHEME["systolic value signal"].format(row_num=row_num, col_num=col_num), BITWIDTH),
+            (NAME_SCHEME["systolic idx signal"].format(row_num=row_num, col_num=col_num), addr_width),
         ],
     )
 
@@ -159,13 +159,13 @@ def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfigura
             pe_row = row*config.tensor_left_length + tensor_row
             pe_col = col*config.tensor_top_length + tensor_col
             group_name = NAME_SCHEME["out write"].format(pe=f"pe_{pe_row}_{pe_col}")
-            valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=pe_row))
-            value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=pe_row))
-            idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=pe_row))
+            valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=pe_row, col_num=tensor_col))
+            value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=pe_row, col_num=tensor_col))
+            idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=pe_row, col_num=tensor_col))
             with comp.static_group(group_name, 1) as g:
                 g.asgn(valid_port, 1)
                 g.asgn(value_port, getattr(block_pe, f"final_{tensor_row}_{tensor_col}"))
-                g.asgn(idx_port, pe_col)
+                g.asgn(idx_port, col)
 
 
 def get_memory_updates(config: SystolicConfiguration, row, col):
@@ -449,21 +449,23 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
 
     # Instantiate output memory
     for i in range(config.left_length * config.tensor_left_length):
-        add_systolic_output_params(
-            computational_unit, i, bits_needed(config.left_length * config.tensor_left_length)
-        )
+        # Need tensor_top_length outputs for each row so we can get 1 whole row of a block PE out at once
+        for j in range(config.tensor_top_length):
+            add_systolic_output_params(
+                computational_unit, i, j, bits_needed(config.top_length)
+            )
 
     for row in range(config.left_length):
         for col in range(config.top_length):
             # Instantiate the mover fabric
-            instantiate_data_move(
-                computational_unit,
-                config,
-                row,
-                col,
-                col < config.top_length - 1,
-                row < config.left_length - 1,
-            )
+            # instantiate_data_move(
+            #     computational_unit,
+            #     config,
+            #     row,
+            #     col,
+            #     col < config.top_length - 1,
+            #     row < config.left_length - 1,
+            # )
 
             # Instantiate output movement structure, i.e., writes to
             # `computational_unit`'s output ports

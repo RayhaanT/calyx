@@ -20,7 +20,7 @@ COND_REG = "cond_reg"
 WRITE_DONE_COND = "write_done_cond"
 
 
-def add_systolic_input_params(comp: cb.ComponentBuilder, row_num, addr_width):
+def add_systolic_input_params(comp: cb.ComponentBuilder, row_num, col_num, addr_width):
     """
     Add ports "r_{row_num}_valid", "r_{row_num}_value", "r_{row_num}_idx" to comp.
     These ports are meant to read from the systolic array output.
@@ -28,24 +28,25 @@ def add_systolic_input_params(comp: cb.ComponentBuilder, row_num, addr_width):
     cb.add_comp_params(
         comp,
         input_ports=[
-            (NAME_SCHEME["systolic valid signal"].format(row_num=row_num), 1),
-            (NAME_SCHEME["systolic value signal"].format(row_num=row_num), BITWIDTH),
-            (NAME_SCHEME["systolic idx signal"].format(row_num=row_num), addr_width),
+            (NAME_SCHEME["systolic valid signal"].format(row_num=row_num, col_num=col_num), 1),
+            (NAME_SCHEME["systolic value signal"].format(row_num=row_num, col_num=col_num), BITWIDTH),
+            (NAME_SCHEME["systolic idx signal"].format(row_num=row_num, col_num=col_num), addr_width),
         ],
         output_ports=[],
     )
 
 
-def add_post_op_params(comp: cb.Builder, num_rows: int, idx_width: int):
+def add_post_op_params(comp: cb.Builder, num_rows: int, num_tensor_cols: int, idx_width: int):
     """
     Adds correct parameters for post op component comp
     """
     comp.output("computation_done", 1)
     for r in range(num_rows):
-        cb.add_write_mem_params(
-            comp, OUT_MEM + f"_{r}", data_width=BITWIDTH, addr_width=idx_width
-        )
-        add_systolic_input_params(comp, r, idx_width)
+        for c in range(num_tensor_cols):
+            cb.add_write_mem_params(
+                comp, f"{OUT_MEM}_{r}_{c}", data_width=BITWIDTH, addr_width=idx_width
+            )
+            add_systolic_input_params(comp, r, c, idx_width)
 
 
 def create_immediate_done_condition(
@@ -60,8 +61,9 @@ def create_immediate_done_condition(
     systolic array presents its final value.
     """
     this = comp.this()
-    final_row_valid = this.port(f"r{num_rows -1}_valid")
-    final_row_idx = this.port(f"r{num_rows-1}_idx")
+    # Don't need to fix column num. All columns of a block PE write simultaneously
+    final_row_valid = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=num_rows-1, col_num=0))
+    final_row_idx = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=num_rows-1, col_num=0))
     max_idx = num_cols - 1
     # delay_reg delays writing to this.computation_done
     delay_reg = comp.reg("delay_reg", 1)
@@ -77,7 +79,7 @@ def create_immediate_done_condition(
         this.computation_done = delay_reg.done @ 1
 
 
-def imm_write_mem_groups(comp: cb.ComponentBuilder, row_num: int, perform_relu: bool):
+def imm_write_mem_groups(comp: cb.ComponentBuilder, row_num: int, col_num: int, perform_relu: bool):
     """
     Instantiates group that writes the systolic array values for `row_num` into
     the output memory.
@@ -86,20 +88,20 @@ def imm_write_mem_groups(comp: cb.ComponentBuilder, row_num: int, perform_relu: 
     """
     this = comp.this()
     # ports to write to memory
-    write_en_port = this.port(OUT_MEM + f"_{row_num}_write_en")
-    write_data_port = this.port(OUT_MEM + f"_{row_num}_write_data")
-    addr0_port = this.port(OUT_MEM + f"_{row_num}_addr0")
+    write_en_port = this.port(f"{OUT_MEM}_{row_num}_{col_num}_write_en")
+    write_data_port = this.port(f"{OUT_MEM}_{row_num}_{col_num}_write_data")
+    addr0_port = this.port(f"{OUT_MEM}_{row_num}_{col_num}_addr0")
 
     # ports to read from systolic array
-    valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=row_num))
-    value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=row_num))
-    idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=row_num))
+    valid_port = this.port(NAME_SCHEME["systolic valid signal"].format(row_num=row_num, col_num=col_num))
+    value_port = this.port(NAME_SCHEME["systolic value signal"].format(row_num=row_num, col_num=col_num))
+    idx_port = this.port(NAME_SCHEME["systolic idx signal"].format(row_num=row_num, col_num=col_num))
 
     if perform_relu:
         # lt operator to see if value is < 0
-        lt = comp.fp_sop(f"val_lt_r{row_num}", "lt", BITWIDTH, INTWIDTH, FRACWIDTH)
+        lt = comp.fp_sop(f"val_lt_r{row_num}_{col_num}", "lt", BITWIDTH, INTWIDTH, FRACWIDTH)
         # group that writes output of systolic arrays to memory
-        with comp.static_group(f"write_r{row_num}", 1) as g:
+        with comp.static_group(f"write_r{row_num}_{col_num}", 1) as g:
             lt.left = value_port
             lt.right = 0
             g.asgn(write_en_port, valid_port)
@@ -107,7 +109,7 @@ def imm_write_mem_groups(comp: cb.ComponentBuilder, row_num: int, perform_relu: 
             g.asgn(write_data_port, 0, lt.out)
             g.asgn(addr0_port, idx_port)
     else:
-        with comp.static_group(f"write_r{row_num}", 1) as g:
+        with comp.static_group(f"write_r{row_num}_{col_num}", 1) as g:
             g.asgn(write_en_port, valid_port)
             g.asgn(write_data_port, value_port)
             g.asgn(addr0_port, idx_port)
@@ -122,19 +124,21 @@ def imm_write_mem_post_op(
     the result to memory otherwise. In other words, it performs relu on the value
     before writing to memory.
     """
-    (num_rows, num_cols) = config.get_output_dimensions()
-    idx_width = bits_needed(num_cols)
+    (num_rows, _) = config.get_output_dimensions()
+    idx_width = bits_needed(config.top_length)
+
     post_op_name = RELU_POST_OP if perform_relu else DEFAULT_POST_OP
     comp = prog.component(name=post_op_name)
-    add_post_op_params(comp, num_rows, idx_width)
+    add_post_op_params(comp, num_rows, config.tensor_top_length, idx_width)
     for r in range(num_rows):
-        imm_write_mem_groups(comp, r, perform_relu=perform_relu)
-    create_immediate_done_condition(comp, num_rows, num_cols, idx_width)
+        for c in range(config.tensor_top_length):
+            imm_write_mem_groups(comp, r, c, perform_relu=perform_relu)
+    create_immediate_done_condition(comp, num_rows, config.top_length, idx_width)
 
     comp.control = py_ast.StaticParComp(
         [py_ast.Enable(WRITE_DONE_COND)]
         # write to memory
-        + [py_ast.Enable(f"write_r{r}") for r in range(num_rows)]
+        + [py_ast.Enable(f"write_r{r}_{c}") for r in range(num_rows) for c in range(config.tensor_top_length)]
     )
 
 

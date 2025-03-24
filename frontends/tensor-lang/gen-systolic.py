@@ -86,6 +86,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     connections = []
     # Connect input memories to systolic_array
     for r in range(left_length):
+        # TODO: is this correct? iterate over left and then top?
         for tensor_row in range(config.tensor_top_length):
             for i in range(config.width):
                 connections += create_mem_connections(
@@ -108,23 +109,26 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     # Connect outout memories to post_op, and systolic_array_output to
     # post_op inputs.
     for i in range(left_length):
-        # Connect output memory to post op. want to write to this memory.
-        connections += create_mem_connections(
-            main, post_op, f"{OUT_MEM}_{i}", top_length * config.tensor_top_length, read_mem=False
-        )
-        # Connect systolic array to post op
-        connections += cb.build_connections(
-            post_op,
-            systolic_array,
-            "",
-            "",
-            [
-                NAME_SCHEME["systolic valid signal"].format(row_num=i),
-                NAME_SCHEME["systolic value signal"].format(row_num=i),
-                NAME_SCHEME["systolic idx signal"].format(row_num=i),
-            ],
-            [],
-        )
+        for tensor_row in range(config.tensor_left_length):
+            for col_num in range(config.tensor_top_length):
+                row_num = i*left_length + tensor_row
+                # Connect output memory to post op. want to write to this memory.
+                connections += create_mem_connections(
+                    main, post_op, f"{OUT_MEM}_{row_num}_{col_num}", top_length, read_mem=False
+                )
+                # Connect systolic array to post op
+                connections += cb.build_connections(
+                    post_op,
+                    systolic_array,
+                    "",
+                    "",
+                    [
+                        NAME_SCHEME["systolic valid signal"].format(row_num=row_num, col_num=col_num),
+                        NAME_SCHEME["systolic value signal"].format(row_num=row_num, col_num=col_num),
+                        NAME_SCHEME["systolic idx signal"].format(row_num=row_num, col_num=col_num),
+                    ],
+                    [],
+                )
     # Use a wire and register so that we have a signal that tells us when
     # systolic array component is done. This way, we don't retrigger systolic_array_comp
     # when it has already finished.
