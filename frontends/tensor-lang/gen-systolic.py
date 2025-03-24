@@ -66,13 +66,12 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     It basically connects the ports of the systolic component and post_op component
     in a single group so that they run.
     """
-    top_length, top_depth, left_length, left_depth = (
+    top_length, left_length, depth = (
         config.top_length,
-        config.top_depth,
         config.left_length,
-        config.left_depth,
+        config.depth,
     )
-    mem_depth = top_depth // config.width
+    mem_depth = depth // config.width
     main = prog.component("main")
     systolic_array = main.cell(
         "systolic_array_component", py_ast.CompInst(SYSTOLIC_ARRAY_COMP, [])

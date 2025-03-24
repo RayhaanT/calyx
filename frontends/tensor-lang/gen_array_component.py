@@ -405,10 +405,12 @@ Writing PE Result: {schedule.mappings['pe_write_sched'][r][c].i1}"
 
 def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     """
-    top_length: Number of PEs in each row.
-    top_depth: Number of elements processed by each PE in a row.
-    left_length: Number of PEs in each column.
-    left_depth: Number of elements processed by each PE in a col.
+    top_length: Number of block PEs columns
+    left_length: Number of block PEs rows
+    tensor_top_length: Number of tensor PEs cols in each block PE
+    tensor_left_length: Number of tensor PEs rows in each block PE
+    width: Number of elements processed by each tensor PE simultaneously
+    depth: Total number of elements processed by each tensor PE
     """
     pe(prog, config.width)
     block_pe(prog, config)
@@ -434,7 +436,7 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
             instantiate_block_pe(computational_unit, row, col, config)
 
     # Instantiate all the memories
-    mem_depth = config.top_depth // config.width
+    mem_depth = config.depth // config.width
     for col in range(config.top_length):
         for tensor_col in range(config.tensor_top_length):
             for i in range(config.width):

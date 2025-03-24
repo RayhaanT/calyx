@@ -7,7 +7,7 @@ SUPPORTED_POST_OPS = ["leaky-relu", "relu", "relu-dynamic"]
 class SystolicConfiguration:
     """
     A class that represents a "systolic configuration". Includes:
-    top_length, top_depth, left_length, left_depth
+    top_length, left_length, tensor_top_length, tensor_left_length, depth
     post_op
     post_op has a default of None, the other values have no default: their value
     must be provided.
@@ -16,7 +16,7 @@ class SystolicConfiguration:
     def parse_arguments(self):
         """
         Parses arguments to give self the following fields:
-        top_length, top_depth, left_length, left_depth, and post_op
+        top_length, left_length, tensor_top_length, tensor_left_length, depth, and post_op
         """
 
         # Arg parsing
@@ -70,20 +70,19 @@ class SystolicConfiguration:
         if all(map(lambda x: x is not None, fields)):
             self.tensor_top_length = args.tensor_top_length
             self.top_length = args.top_length
-            self.top_depth = args.depth
             self.tensor_left_length = args.tensor_left_length
             self.left_length = args.left_length
-            self.left_depth = args.depth
             self.post_op = args.post_op
             self.static = args.fixed_dim
+            self.depth = args.depth
             self.width = args.tensor_width
         elif args.file is not None:
             with open(args.file, "r") as f:
                 spec = json.load(f)
                 self.top_length = spec["top_length"]
-                self.top_depth = spec["top_depth"]
+                self.depth = spec["top_depth"]
                 self.left_length = spec["left_length"]
-                self.left_depth = spec["left_depth"]
+                self.depth = spec["left_depth"]
                 # default to not perform leaky_relu
                 self.post_op = spec.get("post_op", None)
                 # default to non-static (i.e., dynamic contraction dimension)
@@ -91,13 +90,13 @@ class SystolicConfiguration:
         else:
             parser.error(
                 "Need to pass either `FILE` or all of `"
-                "-tl TOP_LENGTH -td TOP_DEPTH -ll LEFT_LENGTH -ld LEFT_DEPTH`"
+                "-N TOP_LENGTH -M LEFT_LEGNTH -A BLOCK_LEFT_LENGTH -B BLOCK_TOP_LENGTH -C TENSOR_WIDTH -d DEPTH`"
             )
-        # assert self.top_depth == self.left_depth, (
+
+        assert self.depth % self.width == 0, (
+            f"Cannot split depth of {self.depth} into {self.width}-wide chunks"
+        )
         #     f"Cannot multiply matrices: "
-        #     f"{self.top_length}x{self.top_depth} and \
-        #         {self.left_depth}x{self.left_length}"
-        # )
 
     def get_output_dimensions(self):
         """
@@ -113,12 +112,8 @@ class SystolicConfiguration:
         """
         Returns the contraction dimension
         """
-        assert (
-            self.left_depth == self.top_depth
-        ), "left_depth and top_depth should be same"
-        # Could have also returned self.top_depth
         # TODO: double check this is right for iteration count calculation
-        return self.left_depth // self.width
+        return self.depth // self.width
 
     def get_iteration_count(self):
         """
