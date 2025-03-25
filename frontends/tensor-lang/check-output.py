@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 import argparse
 import json
@@ -48,7 +49,7 @@ if __name__ == "__main__":
         for tensor_row in range(A):
             row = block_row * A + tensor_row
             for mult in range(C):
-                for pos in range(depth):
+                for pos in range(depth//C):
                     col = pos * C + mult
                     left[row][col] = json_data[f"l{block_row}_{tensor_row}_{mult}"][pos]
 
@@ -56,7 +57,7 @@ if __name__ == "__main__":
         for tensor_col in range(B):
             col = block_col * B + tensor_col
             for mult in range(C):
-                for pos in range(depth):
+                for pos in range(depth//C):
                     row = pos * C + mult
                     top[row][col] = json_data[f"t{block_col}_{tensor_col}_{mult}"][pos]
 
@@ -66,12 +67,11 @@ if __name__ == "__main__":
     elif post_op == "relu":
         matmul_result = np.where(matmul_result > 0, matmul_result, 0)
 
-    res = []
-    for block_row in range(M):
-        for tensor_row in range(N):
-            res.append(list(map(float, json_data[f"out_mem_{block_row}_{tensor_row}"])))
-
-    json_result = np.array(res)
+    json_result = np.zeros((B*N, M*A))
+    for row in range(M*A):
+        for tensor_col in range(B):
+            for i in range(N):
+                json_result[row][i*B + tensor_col] = json_data[f"out_mem_{row}_{tensor_col}"][i]
 
     if np.isclose(matmul_result, json_result, atol=1e-3).all():
         print("Correct")
