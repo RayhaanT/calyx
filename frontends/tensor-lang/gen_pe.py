@@ -34,7 +34,8 @@ def pe(prog: cb.Builder, width: int):
     yet.
     """
     # Latency is the latency of the adder tree plus 1 to add to the acc
-    latency = ceil(log(width, 2)) + 1
+    # latency = ceil(log(width, 2)) + 1
+    latency = 1
     comp = prog.component(name=PE_NAME, latency=latency)
 
     # Generate a multiplication unit for each input pair
@@ -58,11 +59,9 @@ def pe(prog: cb.Builder, width: int):
             muls[i].left = tops[i]
             muls[i].right = lefts[i]
 
-    control_seq = []
-
-    # Parallelize multiplications with first adder level
-    par = py_ast.StaticParComp([py_ast.Enable(f"do_add{len(muls)}"), py_ast.Enable("do_mul")])
-    control_seq.append(par)
+    control_par = []
+    control_par.append(py_ast.Enable(f"do_add{len(muls)}"))
+    control_par.append(py_ast.Enable("do_mul"))
 
     to_add = muls
     # Build an adder tree
@@ -70,7 +69,7 @@ def pe(prog: cb.Builder, width: int):
     while len(to_add) > 1:
         to_add = add_tree_layer(to_add, comp)
         if len(to_add) > 1:
-            control_seq.append(py_ast.Enable(f"do_add{len(to_add)}"))
+            control_par.append(py_ast.Enable(f"do_add{len(to_add)}"))
 
     # Add add tree result to acc
     with comp.static_group(f"final_add", 1):
@@ -80,8 +79,8 @@ def pe(prog: cb.Builder, width: int):
         acc.write_en = this.mul_ready
         acc.in_ = adder.out
 
-    control_seq.append(py_ast.Enable(f"final_add"))
-    comp.control += py_ast.StaticSeqComp(control_seq)
+    control_par.append(py_ast.Enable(f"final_add"))
+    comp.control += py_ast.StaticParComp(control_par)
 
     with comp.continuous:
         this.out = acc.out

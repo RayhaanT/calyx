@@ -46,7 +46,8 @@ def block_pe(prog: cb.Builder, config: SystolicConfiguration):
     Data is ingested from neighbouring block PEs or from the top/left of the grid.
     Data is broadcast to all tensor PEs within the block simultaneously.
     """
-    latency = ceil(log(config.width, 2)) + 1
+    # latency = ceil(log(config.width, 2)) + 1
+    latency = 1
     comp = prog.component(name=BLOCK_PE_NAME, latency=latency)
 
     # TODO: figure out what to do with this
