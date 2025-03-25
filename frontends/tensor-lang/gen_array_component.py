@@ -122,31 +122,6 @@ def get_indexor(comp: cb.ComponentBuilder, width: int, offset: int) -> cb.CellBu
         return comp.get_cell(f"idx_minus_{offset}_res")
 
 
-def instantiate_data_move(
-    comp: cb.ComponentBuilder, config: SystolicConfiguration, row: int, col: int, right_edge: bool, down_edge: bool
-):
-    """
-    Generates groups for "data movers" which are groups that move data
-    from the `write` register of the PE at (row, col) to the read register
-    of the PEs at (row+1, col) and (row, col+1)
-    """
-    if right_edge:
-        src_block = comp.get_cell(f"block_pe_{row}_{col}")
-        dst_block = comp.get_cell(f"block_pe_{row}_{col + 1}")
-        with comp.continuous:
-            for tensor_row in range(config.tensor_left_length):
-                for i in range(config.width):
-                    setattr(dst_block, f"left_in_{tensor_row}_{i}", getattr(src_block, f"left_out_{tensor_row}_{i}"))
-
-    if down_edge:
-        src_block = comp.get_cell(f"block_pe_{row}_{col}")
-        dst_block = comp.get_cell(f"block_pe_{row + 1}_{col}")
-        with comp.continuous:
-            for tensor_col in range(config.tensor_left_length):
-                for i in range(config.width):
-                    setattr(dst_block, f"top_in_{tensor_col}_{i}", getattr(src_block, f"top_out_{tensor_col}_{i}"))
-
-
 def instantiate_output_move(comp: cb.ComponentBuilder, config: SystolicConfiguration, row, col):
     """
     Generates groups to move the final value from a PE to the output ports,
@@ -195,19 +170,39 @@ def get_pe_invoke(config: SystolicConfiguration, r, c, mul_ready):
     gets the PE invokes for the PE at (r,c). mul_ready signals whether 1 or 0
     should be passed into mul_ready
     """
+    if r == 0:
+        top_in = (
+            (f"top_in_{tensor_col}_{i}", py_ast.CompPort(py_ast.CompVar(f"top_{r}_{c}_{tensor_col}_{i}"), "out"))
+            for tensor_col in range(config.tensor_top_length)
+            for i in range(config.width)
+        )
+    else:
+        top_block = py_ast.CompVar(f"block_pe_{r-1}_{c}")
+        top_in = (
+            (f"top_in_{tensor_col}_{i}", py_ast.CompPort(top_block, f"top_out_{tensor_col}_{i}"))
+            for tensor_col in range(config.tensor_top_length)
+            for i in range(config.width)
+        )
+
+    if c == 0:
+        left_in = (
+            (f"left_in_{tensor_row}_{i}", py_ast.CompPort(py_ast.CompVar(f"left_{r}_{c}_{tensor_row}_{i}"), "out"))
+            for tensor_row in range(config.tensor_left_length)
+            for i in range(config.width)
+        )
+    else:
+        left_block = py_ast.CompVar(f"block_pe_{r}_{c-1}")
+        left_in = (
+            (f"left_in_{tensor_row}_{i}", py_ast.CompPort(left_block, f"left_out_{tensor_row}_{i}"))
+            for tensor_row in range(config.tensor_left_length)
+            for i in range(config.width)
+        )
+
     return py_ast.StaticInvoke(
         id=py_ast.CompVar(f"block_pe_{r}_{c}"),
         in_connects=[
-            *(
-                (f"top_in_{tensor_col}_{i}", py_ast.CompPort(py_ast.CompVar(f"top_{r}_{c}_{tensor_col}_{i}"), "out"))
-                for tensor_col in range(config.tensor_top_length)
-                for i in range(config.width)
-            ),
-            *(
-                (f"left_in_{tensor_row}_{i}", py_ast.CompPort(py_ast.CompVar(f"left_{r}_{c}_{tensor_row}_{i}"), "out"))
-                for tensor_row in range(config.tensor_left_length)
-                for i in range(config.width)
-            ),
+            *top_in,
+            *left_in,
             (
                 "mul_ready",
                 mul_ready,
@@ -457,16 +452,6 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
 
     for row in range(config.left_length):
         for col in range(config.top_length):
-            # Instantiate the mover fabric
-            # instantiate_data_move(
-            #     computational_unit,
-            #     config,
-            #     row,
-            #     col,
-            #     col < config.top_length - 1,
-            #     row < config.left_length - 1,
-            # )
-
             # Instantiate output movement structure, i.e., writes to
             # `computational_unit`'s output ports
             instantiate_output_move(computational_unit, config, row, col)
