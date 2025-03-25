@@ -111,7 +111,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     for i in range(left_length):
         for tensor_row in range(config.tensor_left_length):
             for col_num in range(config.tensor_top_length):
-                row_num = i*left_length + tensor_row
+                row_num = i*config.tensor_left_length + tensor_row
                 # Connect output memory to post op. want to write to this memory.
                 connections += create_mem_connections(
                     main, post_op, f"{OUT_MEM}_{row_num}_{col_num}", top_length, read_mem=False
