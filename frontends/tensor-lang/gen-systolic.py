@@ -59,6 +59,25 @@ def create_mem_connections(
         mem, component_builder, "", f"{mem_name}_", input_port_names, output_port_names
     )
 
+def create_di_mem_connections(
+    main: cb.ComponentBuilder,
+    component_builder: cb.ComponentBuilder,
+    mem_name: str,
+    mem_size: int,
+    di_bits: int,
+):
+    mem = main.comb_mem_d1(
+        mem_name,
+        di_bits, # selector for index in the block
+        mem_size,
+        bits_needed(mem_size),
+        is_external=True,
+    )
+    input_port_names = ["addr0"]
+    output_port_names = ["read_data"]
+    return cb.build_connections(
+        mem, component_builder, "", f"{mem_name}_", input_port_names, output_port_names,
+    )
 
 def build_main(prog, config: SystolicConfiguration, post_op_component_name):
     """
@@ -98,7 +117,7 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
                 )
     for c in range(top_length):
         for tensor_col in range(config.tensor_left_length):
-            for i in range(config.width):
+            for i in range(config.top_nz_width):
                 connections += create_mem_connections(
                     main,
                     systolic_array,
@@ -106,7 +125,15 @@ def build_main(prog, config: SystolicConfiguration, post_op_component_name):
                     mem_depth,
                     read_mem=True,
                 )
-    # Connect outout memories to post_op, and systolic_array_output to
+                if config.dbb is not None:
+                    connections += create_di_mem_connections(
+                        main,
+                        systolic_array,
+                        f"tdi{c}_{tensor_col}_{i}",
+                        mem_depth,
+                        config.di_bits,
+                    )
+    # Connect output memories to post_op, and systolic_array_output to
     # post_op inputs.
     for i in range(left_length):
         for tensor_row in range(config.tensor_left_length):

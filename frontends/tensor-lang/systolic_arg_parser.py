@@ -63,6 +63,11 @@ class SystolicConfiguration:
             ),
             action="store_true",
         )
+        parser.add_argument(
+            "--dbb",
+            type=int,
+            default=None,
+        )
 
         args = parser.parse_args()
 
@@ -76,6 +81,7 @@ class SystolicConfiguration:
             self.static = args.fixed_dim
             self.depth = args.depth
             self.width = args.tensor_width
+            self.dbb = args.dbb
         elif args.file is not None:
             with open(args.file, "r") as f:
                 spec = json.load(f)
@@ -96,7 +102,14 @@ class SystolicConfiguration:
         assert self.depth % self.width == 0, (
             f"Cannot split depth of {self.depth} into {self.width}-wide chunks"
         )
-        #     f"Cannot multiply matrices: "
+        if self.dbb is not None:
+            assert 1 <= self.dbb < self.width, (
+                f"DBB value {self.dbb} must be between 1 and {self.width - 1}"
+            )
+            self.top_nz_width = self.dbb
+            self.di_bits = (self.width - 1).bit_length()
+        else:
+            self.top_nz_width = self.width
 
     def get_output_dimensions(self):
         """

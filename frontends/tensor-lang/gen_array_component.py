@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from gen_pe import pe, BITWIDTH
+from gen_pe import pe, dbb_pe, BITWIDTH
 from gen_block_pe import block_pe, BLOCK_PE_NAME
 from calyx import builder as cb
 from calyx import py_ast
@@ -87,6 +87,29 @@ def instantiate_memory(comp: cb.ComponentBuilder, top_or_left, idx, tensor_idx, 
         target.write_en = 1
 
 
+def instantiate_di_memory(comp: cb.ComponentBuilder, idx, tensor_idx, parallel_idx, size, di_width):
+    name = f"tdi{idx}_{tensor_idx}_{parallel_idx}"
+    target_reg = f"top_di_0_{idx}_{tensor_idx}_{parallel_idx}"
+
+    idx_width = bits_needed(size)
+    # Instantiate the memory
+    cb.add_read_mem_params(comp, name, data_width=di_width, addr_width=idx_width)
+    this = comp.this()
+    addr0_port = this.port(name + "_addr0")
+    read_data_port = this.port(name + "_read_data")
+    # Get the indexing value, taking into account offset
+    # For example, for l2, we want to access idx-2 (since we want to wait two
+    # cycles before we start feeding memories in)
+    idx_val = get_indexor(comp, idx_width, offset=idx)
+    # Register to save the value from the memory. Defined by [[instantiate_pe]].
+    target = comp.get_cell(target_reg)
+    group_name = NAME_SCHEME["memory move"].format(prefix=name)
+    with comp.static_group(group_name, 1) as g:
+        g.asgn(addr0_port, idx_val.out)
+        target.in_ = read_data_port
+        target.write_en = 1
+
+
 def instantiate_block_pe(comp: cb.ComponentBuilder, row: int, col: int, config: SystolicConfiguration):
     """
     Instantiate the block PE and all the registers connected to it.
@@ -96,8 +119,10 @@ def instantiate_block_pe(comp: cb.ComponentBuilder, row: int, col: int, config: 
 
     # Registers for the block pe to forward values with (We only need the leftmost and rightmost for data loading so fix this later)
     for c in range(config.tensor_top_length):
-        for i in range(config.width):
+        for i in range(config.top_nz_width):
             comp.reg(f"top_{row}_{col}_{c}_{i}", BITWIDTH)
+            if config.dbb is not None:
+                comp.reg(f"top_di_{row}_{col}_{c}_{i}", config.di_bits)
     for r in range(config.tensor_left_length):
         for i in range(config.width):
             comp.reg(f"left_{row}_{col}_{r}_{i}", BITWIDTH)
@@ -159,8 +184,14 @@ def get_memory_updates(config: SystolicConfiguration, row, col):
         movers.extend(
             NAME_SCHEME["memory move"].format(prefix=f"t{col}_{tensor_col}_{i}")
             for tensor_col in range(config.tensor_top_length)
-            for i in range(config.width)
+            for i in range(config.top_nz_width)
         )
+        if config.dbb is not None:
+            movers.extend(
+                NAME_SCHEME["memory move"].format(prefix=f"tdi{col}_{tensor_col}_{i}")
+                for tensor_col in range(config.tensor_top_length)
+                for i in range(config.top_nz_width)
+            )
     mover_enables = [py_ast.Enable(name) for name in movers]
     return mover_enables
 
@@ -170,19 +201,32 @@ def get_pe_invoke(config: SystolicConfiguration, r, c, mul_ready):
     gets the PE invokes for the PE at (r,c). mul_ready signals whether 1 or 0
     should be passed into mul_ready
     """
+    top_di_in = ()
     if r == 0:
         top_in = (
             (f"top_in_{tensor_col}_{i}", py_ast.CompPort(py_ast.CompVar(f"top_{r}_{c}_{tensor_col}_{i}"), "out"))
             for tensor_col in range(config.tensor_top_length)
-            for i in range(config.width)
+            for i in range(config.top_nz_width)
         )
+        if config.dbb is not None:
+            top_di_in = (
+                (f"top_di_in_{tensor_col}_{i}", py_ast.CompPort(py_ast.CompVar(f"top_di_{r}_{c}_{tensor_col}_{i}"), "out"))
+                for tensor_col in range(config.tensor_top_length)
+                for i in range(config.top_nz_width)
+            )
     else:
         top_block = py_ast.CompVar(f"block_pe_{r-1}_{c}")
         top_in = (
             (f"top_in_{tensor_col}_{i}", py_ast.CompPort(top_block, f"top_out_{tensor_col}_{i}"))
             for tensor_col in range(config.tensor_top_length)
-            for i in range(config.width)
+            for i in range(config.top_nz_width)
         )
+        if config.dbb is not None:
+            top_di_in = (
+                (f"top_di_in_{tensor_col}_{i}", py_ast.CompPort(top_block, f"top_di_out_{tensor_col}_{i}"))
+                for tensor_col in range(config.tensor_top_length)
+                for i in range(config.top_nz_width)
+            )
 
     if c == 0:
         left_in = (
@@ -202,6 +246,7 @@ def get_pe_invoke(config: SystolicConfiguration, r, c, mul_ready):
         id=py_ast.CompVar(f"block_pe_{r}_{c}"),
         in_connects=[
             *top_in,
+            *top_di_in,
             *left_in,
             (
                 "mul_ready",
@@ -407,7 +452,10 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     width: Number of elements processed by each tensor PE simultaneously
     depth: Total number of elements processed by each tensor PE
     """
-    pe(prog, config.width)
+    if config.dbb is not None:
+        dbb_pe(prog, config.width, config.top_nz_width, config.di_bits)
+    else:
+        pe(prog, config.width)
     block_pe(prog, config)
     computational_unit = prog.component(SYSTOLIC_ARRAY_COMP)
     depth_port = computational_unit.input("depth", BITWIDTH)
@@ -434,8 +482,10 @@ def create_systolic_array(prog: cb.Builder, config: SystolicConfiguration):
     mem_depth = config.depth // config.width
     for col in range(config.top_length):
         for tensor_col in range(config.tensor_top_length):
-            for i in range(config.width):
+            for i in range(config.top_nz_width):
                 instantiate_memory(computational_unit, "top", col, tensor_col, i, mem_depth)
+                if config.dbb is not None:
+                    instantiate_di_memory(computational_unit, col, tensor_col, i, mem_depth, config.di_bits)
 
     for row in range(config.left_length):
         for tensor_row in range(config.tensor_left_length):
