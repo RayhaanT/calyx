@@ -24,6 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("-N", "--top-length", type=int)
     parser.add_argument("-M", "--left-length", type=int)
     parser.add_argument("-d", "--depth", type=int)
+    parser.add_argument("--dbb", type=int, default=None)
     parser.add_argument("-p", "--post-op", type=str, default=None)
     parser.add_argument("-j", "--json-file", type=str)
 
@@ -37,9 +38,11 @@ if __name__ == "__main__":
     depth = args.depth
     post_op = args.post_op
     json_file = args.json_file
+    dbb = args.dbb
 
     top_length = B * N
     left_length = A * M
+    tnzw = dbb or C
 
     left = np.zeros((left_length, depth), "f")
     top = np.zeros((depth, top_length), "f")
@@ -56,9 +59,9 @@ if __name__ == "__main__":
     for block_col in range(N):
         for tensor_col in range(B):
             col = block_col * B + tensor_col
-            for mult in range(C):
+            for mult in range(tnzw):
                 for pos in range(depth//C):
-                    row = pos * C + mult
+                    row = pos * C + (mult if dbb is None else json_data[f"tdi{block_col}_{tensor_col}_{mult}"][pos])
                     top[row][col] = json_data[f"t{block_col}_{tensor_col}_{mult}"][pos]
 
     matmul_result = np.matmul(left, top)
