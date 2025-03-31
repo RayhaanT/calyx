@@ -60,7 +60,8 @@ def pe(prog: cb.Builder, width: int):
             muls[i].right = lefts[i]
 
     control_par = []
-    control_par.append(py_ast.Enable(f"do_add{len(muls)}"))
+    if len(muls) > 1:
+        control_par.append(py_ast.Enable(f"do_add{len(muls)}"))
     control_par.append(py_ast.Enable("do_mul"))
 
     to_add = muls
