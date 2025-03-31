@@ -118,14 +118,16 @@ def instantiate_block_pe(comp: cb.ComponentBuilder, row: int, col: int, config: 
     comp.cell(f"block_pe_{row}_{col}", py_ast.CompInst(BLOCK_PE_NAME, []))
 
     # Registers for the block pe to forward values with (We only need the leftmost and rightmost for data loading so fix this later)
-    for c in range(config.tensor_top_length):
-        for i in range(config.top_nz_width):
-            comp.reg(f"top_{row}_{col}_{c}_{i}", BITWIDTH)
-            if config.dbb is not None:
-                comp.reg(f"top_di_{row}_{col}_{c}_{i}", config.di_bits)
-    for r in range(config.tensor_left_length):
-        for i in range(config.width):
-            comp.reg(f"left_{row}_{col}_{r}_{i}", BITWIDTH)
+    if row == 0:
+        for c in range(config.tensor_top_length):
+            for i in range(config.top_nz_width):
+                comp.reg(f"top_{row}_{col}_{c}_{i}", BITWIDTH)
+                if config.dbb is not None:
+                    comp.reg(f"top_di_{row}_{col}_{c}_{i}", config.di_bits)
+    if col == 0:
+        for r in range(config.tensor_left_length):
+            for i in range(config.width):
+                comp.reg(f"left_{row}_{col}_{r}_{i}", BITWIDTH)
 
 
 def get_indexor(comp: cb.ComponentBuilder, width: int, offset: int) -> cb.CellBuilder:
